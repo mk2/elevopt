@@ -3,8 +3,7 @@ package main
 import "bytes"
 import "time"
 import "fmt"
-
-import ui "github.com/gizak/termui"
+import "math/rand"
 
 type State string
 
@@ -21,10 +20,11 @@ type Elev struct {
 	pos   int
 	dest  []bool
 	state State
+	num   int
 }
 
-func newElev() Elev {
-	e := Elev{}
+func newElev() *Elev {
+	e := new(Elev)
 	e.dest = make([]bool, MaxFloor)
 	e.state = Stopped
 	return e
@@ -41,7 +41,7 @@ func (e *Elev) toChar() string {
 	return "-"
 }
 
-func (e *Elev) tick() State {
+func (e *Elev) tick(elevs []*Elev) State {
 	e.state = Stopped
 	for i := 0; i < MaxFloor; i++ {
 		if e.dest[i] && i != e.pos {
@@ -52,6 +52,7 @@ func (e *Elev) tick() State {
 			}
 			if i == e.pos {
 				e.state = Arrived
+				e.dest[i] = false
 			} else {
 				e.state = Moving
 			}
@@ -61,45 +62,47 @@ func (e *Elev) tick() State {
 }
 
 func main() {
-	// init ui
-	err := ui.Init()
-	if err != nil {
-		panic(err)
-	}
-
-	defer ui.Close()
-
-	// add q key handler
-	ui.Handle("/sys/kbd/q", func(ui.Event) {
-		ui.StopLoop()
-	})
-
 	// init elevators
-	elevs := make([]Elev, ElevatorCount)
+	elevs := make([]*Elev, ElevatorCount)
 	for i := 0; i < ElevatorCount; i++ {
-		elevs[i] = newElev()
+		e := newElev()
+		e.num = i
+		elevs[i] = e
 	}
+
 	// init waiting peoples
 	wps := make([]int, MaxFloor)
 
-	ui.Loop()
-
+	sum := 0
 	var outbuf bytes.Buffer
-	frame := 0
-	for frame = 0; frame < 100; frame++ {
-		outbuf.Reset()
+	for frame := 0; frame < 1000; frame++ {
+		// gather waiting peoples
+		for f := 0; f < MaxFloor; f++ {
+			for _, e := range elevs {
+				if rand.Int()%RaisingProbability == 0 {
+					wps[f] += 1 + rand.Int()%5
+					e.dest[f] = true
+					sum += wps[f]
+				}
+			}
+		}
+
 		// check each elevator states
 		for _, e := range elevs {
-			if res := e.tick(); res == Arrived || res == Stopped {
+			if res := e.tick(elevs); res == Arrived || res == Stopped {
 				wps[e.pos] = 0
 			}
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 
+		fmt.Println("")
+		outbuf.Reset()
+		outbuf.WriteString(fmt.Sprintf("-Frame:%d-Sum:%d---------------------\n", frame, sum))
 		for f := 0; f < MaxFloor; f++ {
-			outbuf.WriteString("-------------------------\n")
+			outbuf.WriteString(fmt.Sprintf("%3dF", f))
 			for _, e := range elevs {
+				outbuf.WriteString("|")
 				if e.pos == f {
 					outbuf.WriteString(e.toChar())
 				} else {
@@ -109,13 +112,12 @@ func main() {
 						outbuf.WriteString(" ")
 					}
 				}
-				outbuf.WriteString(fmt.Sprintf("|%d", wps[f]))
 			}
-			outbuf.WriteString("\n")
+			outbuf.WriteString(fmt.Sprintf("|%3d", wps[f]))
+			fmt.Println(outbuf.String())
+			outbuf.Reset()
 		}
-		par := ui.NewPar(outbuf.String())
-		par.Height = 100
-		par.Width = 100
-		ui.Render(par)
+		outbuf.Reset()
 	}
+	fmt.Printf("Total Waiting Peoples: %d\n", sum)
 }
